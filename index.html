@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfolio Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="lib/chart.umd.min.js"></script>
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+    .goal-table-container {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .goal-table-container h4 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+
+    .goal-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    .goal-table th,
+    .goal-table td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px;
+    }
+
+    .goal-table th {
+      background: rgba(0, 0, 0, 0.2);
+      color: #94a3b8;
+      text-align: center;
+    }
+
+    .goal-table td[contenteditable="true"] {
+      background: rgba(255, 255, 255, 0.05);
+      cursor: text;
+      transition: background 0.2s;
+    }
+
+    .goal-table td[contenteditable="true"]:hover,
+    .goal-table td[contenteditable="true"]:focus {
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+    }
+
+    .goal-table td:empty:before {
+      content: attr(placeholder);
+      color: #64748b;
+      display: block;
+    }
+
+    .btn-add-row {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      width: 100%;
+      transition: background 0.2s;
+    }
+
+    .btn-add-row:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .allocation-comparison-grid-outer {
+      display: flex;
+      gap: 15px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .goal-sidebar {
+      flex: 0 0 200px;
+      font-size: 11px;
+      padding: 10px;
+    }
+
+    .goal-sidebar h4 {
+      font-size: 12px;
+      margin-top: 0;
+    }
+
+    .goal-sidebar .goal-table th,
+    .goal-sidebar .goal-table td {
+      padding: 4px;
+      font-size: 11px;
+    }
+
+    .main-comparison {
+      flex: 1;
+      min-width: 0;
+    }
+
+    @media (max-width: 1024px) {
+      .goal-sidebar {
+        flex: 1 1 100%;
+      }
+    }
+
+    .btn-save-portfolio {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-save-portfolio:hover {
+      background: linear-gradient(135deg, #059669, #047857);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);
+    }
+
+    .btn-save-portfolio:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <button class="btn-sidebar-toggle" id="btnSidebarToggle" onclick="toggleSidebar()" title="사이드바 접기">◀</button>
+      <div class="sidebar-header">
+        <span class="icon">📂</span>
+        <h2>저장파일 트리</h2>
+      </div>
+      <div class="file-tree" id="fileTree">
+        <div class="tree-folder">
+          <div class="folder-title">
+            <span>📁</span> 저장된 포트폴리오
+          </div>
+          <div class="folder-content" id="savedPortfoliosList">
+            <!-- Saved items will be injected here -->
+            <div class="placeholder" style="min-height: 50px; font-size: 11px;">
+              저장된 파일이 없습니다.
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Wrapper -->
+    <main class="main-content">
+      <!-- Header -->
+    <header class="header">
+      <div>
+        <h1>📊 Portfolio Dashboard <span>Real-time Sync & Visual Analytics</span></h1>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <!-- Firebase Auth Button Container -->
+        <div id="authContainer" style="display:flex; align-items:center; gap:10px;"></div>
+        
+        <button class="btn-sync" id="btnSync">
+          <span class="icon">🔄</span> 시세 동기화
+        </button>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn-export" onclick="exportWorkbook()">📥 엑셀 내보내기</button>
+          <button class="btn-save-portfolio" id="btnSavePortfolio" onclick="saveCurrentPortfolio()">💾 포트폴리오 저장</button>
+        </div>
+        <label class="upload-area" id="dropZone">
+          <input type="file" id="fileInput" accept=".xlsx, .xls">
+          <div class="icon">📂</div>
+          <div class="label">엑셀 드래그 또는 <strong>파일 선택</strong></div>
+        </label>
+      </div>
+    </header>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" id="kpiGrid">
+      <div class="kpi-card">
+        <div class="kpi-label">총 평가액</div>
+        <div class="kpi-value" id="kpiTotalValue">—</div>
+        <div class="kpi-sub" id="kpiTotalValueSub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">총 투자원금</div>
+        <div class="kpi-value" id="kpiTotalCost">—</div>
+        <div class="kpi-sub" id="kpiTotalCostSub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">총 수익금</div>
+        <div class="kpi-value" id="kpiTotalProfit">—</div>
+        <div class="kpi-sub" id="kpiTotalProfitSub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">총 수익률</div>
+        <div class="kpi-value" id="kpiTotalReturn">—</div>
+        <div class="kpi-sub" id="kpiTotalReturnSub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">USD/KRW</div>
+        <div class="kpi-value" id="kpiUsdKrw">—</div>
+        <div class="kpi-sub" id="kpiUsdKrwSub"></div>
+      </div>
+    </div>
+
+    <!-- Main Navigation Tabs -->
+    <div class="tab-bar main-nav" id="mainNav">
+      <button class="tab-btn" data-tab="tabHoldings">📋 종목현황</button>
+      <button class="tab-btn" data-tab="tabAllocation">📁 투자비중</button>
+      <button class="tab-btn" data-tab="tabReturns">📈 누적수익률</button>
+      <button class="tab-btn" data-tab="tabDividends">💰 배당현황</button>
+    </div>
+
+    <!-- Tab 1: Holdings -->
+    <div id="tabHoldings" class="tab-content active">
+      <div class="section">
+        <div class="section-title"><span class="emoji">🔍</span> 필터 및 검색</div>
+        <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; gap:10px;">
+            <select id="filterAccount">
+              <option value="">전체 계좌</option>
+            </select>
+            <select id="filterCountry">
+              <option value="">전체 국가</option>
+            </select>
+            <input type="text" id="filterSearch" placeholder="🔍 종목 검색 (티커/종목명)...">
+          </div>
+          <button class="btn-sync" onclick="toggleManualRow()" style="padding: 4px 12px; font-size:12px;">+ 새 종목
+            추가</button>
+        </div>
+        <div class="table-wrapper">
+          <table id="holdingsTable">
+            <thead>
+              <tr>
+                <th style="width:30px;"></th>
+                <th data-sort="account">계좌 ⇅</th>
+                <th data-sort="country">국가 ⇅</th>
+                <th data-sort="category">분류 ⇅</th>
+                <th data-sort="ticker">티커 ⇅</th>
+                <th data-sort="name">종목명 ⇅</th>
+                <th data-sort="qty">수량 ⇅</th>
+                <th data-sort="avgPrice">평단가 ⇅</th>
+                <th data-sort="curPrice">현재가 ⇅</th>
+                <th data-sort="costKrw">매수금액 ⇅</th>
+                <th data-sort="valueKrw">평가액 ⇅</th>
+                <th data-sort="returnPct">수익률 ⇅</th>
+                <th data-sort="weight" style="width: 140px">비중 ⇅</th>
+              </tr>
+            </thead>
+            <tbody id="holdingsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 투자비중 탭 -->
+    <div id="tabAllocation" class="tab-content">
+      <!-- 통합 컨트롤러 -->
+      <div class="allocation-controls card" style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0">📊 포트폴리오 비중 분석</h3>
+          <div class="toggle-group" id="globalToggle">
+            <button class="toggle-btn active" data-val="name">종목별 보기</button>
+            <button class="toggle-btn" data-val="category">분류별 보기</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="allocation-comparison-grid-outer">
+        <!-- 왼쪽 목표비중 (계좌합 1) -->
+        <div class="goal-sidebar card">
+          <h4>🎯 계좌합 1 목표 비중</h4>
+          <table class="goal-table" id="goalTable1">
+            <thead>
+              <tr>
+                <th>자산군</th>
+                <th>비중(%)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button class="btn-add-row" onclick="addGoalRow(1)">+ 행 추가</button>
+        </div>
+
+        <div class="allocation-comparison-grid main-comparison">
+          <!-- 계좌합 1 -->
+          <div class="comparison-card card">
+            <div class="card-header">
+              <h3>계좌합 1 포트폴리오</h3>
+              <div class="account-check-list" id="checkList1"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="chartSum1"></canvas>
+            </div>
+            <div class="chart-summary-stats" id="statsSum1"></div>
+          </div>
+
+          <!-- 계좌합 2 -->
+          <div class="comparison-card card">
+            <div class="card-header">
+              <h3>계좌합 2 포트폴리오</h3>
+              <div class="account-check-list" id="checkList2"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="chartSum2"></canvas>
+            </div>
+            <div class="chart-summary-stats" id="statsSum2"></div>
+          </div>
+        </div>
+
+        <!-- 오른쪽 목표비중 (계좌합 2) -->
+        <div class="goal-sidebar card">
+          <h4>🎯 계좌합 2 목표 비중</h4>
+          <table class="goal-table" id="goalTable2">
+            <thead>
+              <tr>
+                <th>자산군</th>
+                <th>비중(%)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button class="btn-add-row" onclick="addGoalRow(2)">+ 행 추가</button>
+        </div>
+      </div>
+
+      <!-- 하단 전체 현황 -->
+      <div class="all-accounts-summary card">
+        <h3>모든 계좌 비중 현황</h3>
+        <div class="all-accounts-grid" id="allAccountsGrid"></div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Returns (누적수익률) -->
+    <div id="tabReturns" class="tab-content">
+      <div class="section" style="margin-top:0;">
+        <div class="section-title"><span class="emoji">📊</span> 누적 입금 vs 평가액 추이 (원금 대비 수익)</div>
+        <div class="dividend-layout">
+          <div class="dividend-sidebar card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h3 style="font-size:14px; margin:0;">계좌합 1 구성</h3>
+              <button class="btn-text" id="btnAllCum1">전체선택</button>
+            </div>
+            <div id="cumSum1Checklist" class="account-check-list"></div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 12px;">
+              <h3 style="font-size:14px; margin:0;">계좌합 2 구성</h3>
+              <button class="btn-text" id="btnAllCum2">전체선택</button>
+            </div>
+            <div id="cumSum2Checklist" class="account-check-list"></div>
+          </div>
+
+          <div class="dividend-main">
+            <div class="chart-grid">
+              <div class="card" style="padding:16px;">
+                <h4 style="margin-bottom:16px; font-size:14px;">계좌합 1 누적 수익 곡선</h4>
+                <div class="chart-container" style="height:300px;">
+                  <canvas id="chartCumSum1"></canvas>
+                </div>
+                <div class="chart-summary-stats" id="statsCumSum1" style="margin-top:12px; padding:12px;"></div>
+              </div>
+              <div class="card" style="padding:16px;">
+                <h4 style="margin-bottom:16px; font-size:14px;">계좌합 2 누적 수익 곡선</h4>
+                <div class="chart-container" style="height:300px;">
+                  <canvas id="chartCumSum2"></canvas>
+                </div>
+                <div class="chart-summary-stats" id="statsCumSum2" style="margin-top:12px; padding:12px;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 개별 계좌 — 풀너비 -->
+        <div class="card cum-individual-card">
+          <h4 style="margin-bottom:20px; font-size:14px;">개별 계좌 누적 수익 현황</h4>
+          <div class="cum-account-grid" id="divCumAccountGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 배당현황 탭 -->
+    <div id="tabDividends" class="tab-content">
+      <div class="dividend-layout">
+        <div class="dividend-sidebar card">
+          <h3>분석 계좌 선택</h3>
+          <div id="divAccountCheckList" class="account-check-list"></div>
+        </div>
+        <div class="dividend-main">
+          <div class="card">
+            <h3>연도별/월별 배당금 수령 현황 (원)</h3>
+            <div class="dividend-table-wrap" id="divTableWrap"></div>
+          </div>
+          <div class="card" style="margin-top:24px;">
+            <h3>월별 배당금 추이 비교</h3>
+            <div class="chart-container" style="height:400px;">
+              <canvas id="chartDividend"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>  <!-- /dividend-layout -->
+    </div>  <!-- /tabDividends -->
+    </main>
+  </div>
+
+  <!-- Custom Modal for Notifications -->
+  <div id="customModal" class="modal-overlay">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3 id="modalTitle">알림</h3>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre id="modalMessage"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sync" id="modalConfirm">확인</button>
+        <button class="btn-export" id="modalCancel" style="display:none;">아니오</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Name Modal -->
+  <div id="saveNameModal" class="modal-overlay" style="display:none; opacity:0; pointer-events:none;">
+    <div class="modal-content card" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>💾 포트폴리오 저장</h3>
+        <button class="modal-close" id="saveModalClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px 24px;">
+        <label style="display:block; font-size:13px; color:#94a3b8; margin-bottom:8px;">저장 이름</label>
+        <input
+          type="text"
+          id="saveNameInput"
+          placeholder="포트폴리오 이름을 입력하세요"
+          style="width:100%; box-sizing:border-box; padding:10px 14px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:8px; color:#e2e8f0; font-size:14px; outline:none;"
+        >
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sync" id="saveModalConfirm">✅ 저장</button>
+        <button class="btn-export" id="saveModalCancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gold Sync Notice Banner -->
+  <div id="goldSyncNotice" class="gold-sync-notice">
+    <span class="icon">💡</span>
+    <div class="text">
+      금(Gold) 시세를 실시간 동기화하려면 종목코드(티커)에 <span class="ticker-code">m04020000</span>을 입력해 주세요.
+    </div>
+    <button class="btn-close" onclick="dismissGoldNotice()">&times;</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
